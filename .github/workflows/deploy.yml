@@ -1,39 +1,63 @@
-name: Deploy
-on:
-  push:
-    branches: main
-  pull_request:
-    branches: main
+name: deno
+
+on: [push]
 
 jobs:
-  deploy:
-    name: Deploy
+  fmt:
     runs-on: ubuntu-latest
-
-    permissions:
-      id-token: write # Needed for auth with Deno Deploy
-      contents: read # Needed to clone the repository
-
     steps:
-      - name: Clone repository
-        uses: actions/checkout@v3
-
-      - name: Install Deno
-        uses: denoland/setup-deno@v1
+      - uses: actions/checkout@v3
+      - uses: denoland/setup-deno@v1
         with:
           deno-version: v1.x
+      - run: deno fmt --config deno.json --check
 
-      - name: Install Node.js
-        uses: actions/setup-node@v3
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: denoland/setup-deno@v1
         with:
-          node-version: lts/*
+          deno-version: v1.x
+      - run: deno lint --config deno.json
 
-      - name: Build step
-        run: "npm install && npm run build" # 📝 Update the build command(s) if necessary
-
-      - name: Upload to Deno Deploy
-        uses: denoland/deployctl@v1
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
         with:
-          project: "great-bobcat-78"
-          entrypoint: "stc/interactions.js" # 📝 Update the entrypoint if necessary
-          root: "." # 📝 Update the root if necessary
+          submodules: recursive
+      - uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.x
+      - run: deno test --config deno.json --allow-all --coverage=cov_profile
+      - run: deno coverage cov_profile --lcov --output=lcov.info
+      - uses: codecov/codecov-action@v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  deploy:
+    name: deploy
+    needs: [test]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      # NOTE: this is used since we need to wait for
+      # fauna.yml to update the schema and models
+      # and github doesn't support waiting for ouside jobs
+      - name: Wait for other jobs to succeed
+        uses: lewagon/wait-on-check-action@v1.3.1
+        with:
+          ref: ${{ github.ref }}
+          check-name: 'update-models'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - uses: denoland/deployctl@v1
+        with:
+          project: ${{ secrets.DENO_ID }}
+          entrypoint: src/interactions.ts
