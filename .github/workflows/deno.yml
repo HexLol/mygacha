@@ -60,4 +60,4 @@ jobs:
       - uses: denoland/deployctl@v1
         with:
           project: ${{ secrets.DENO_ID }}
-          entrypoint: src/interactions.ts
+          entrypoint: setup.ts
